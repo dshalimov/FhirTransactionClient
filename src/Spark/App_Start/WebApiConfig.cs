@@ -1,8 +1,5 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Web.Http;
-using Unity.WebApi;
+﻿using System.Web.Http;
+using Spark.Infrastructure;
 
 namespace Spark
 {
@@ -12,7 +9,7 @@ namespace Spark
         {
             // Web API configuration and services
             config.EnableCors();
-
+            config.MessageHandlers.Add(new LogHandler());
             // Web API routes
             config.MapHttpAttributeRoutes();
         }
