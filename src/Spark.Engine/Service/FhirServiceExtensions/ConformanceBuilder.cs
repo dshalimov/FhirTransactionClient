@@ -8,39 +8,46 @@
 
 using System;
 using System.Collections.Generic;
+using System.Configuration;
 using System.Linq;
+using Hl7.Fhir.Introspection;
 using Hl7.Fhir.Model;
 using Hl7.Fhir.Serialization;
 using Spark.Engine.Core;
-using Hl7.Fhir.Introspection;
 
 namespace Spark.Engine.Service.FhirServiceExtensions
 {
-
     public static class ConformanceBuilder
     {
         public static Conformance GetSparkConformance(string sparkVersion, ILocalhost localhost)
         {
-            string vsn = Hl7.Fhir.Model.ModelInfo.Version;
-            Conformance conformance = CreateServer("Spark", sparkVersion, "Furore", fhirVersion: vsn);
+            var vsn = ModelInfo.Version;
+            var conformance = CreateServer("NGE FHIR Server", sparkVersion, "NextGen Healthcare", vsn);
 
-            conformance.AddAllCoreResources(readhistory: true, updatecreate: true, versioning: Conformance.ResourceVersionPolicy.VersionedUpdate);
-            conformance.AddAllSystemInteractions().AddAllInteractionsForAllResources().AddCoreSearchParamsAllResources();
+            conformance.AddAllCoreResources(true, true, Conformance.ResourceVersionPolicy.VersionedUpdate);
+            conformance.AddAllSystemInteractions().AddAllInteractionsForAllResources()
+                .AddCoreSearchParamsAllResources();
             conformance.AddSummaryForAllResources();
-            conformance.AddOperation("Fetch Patient Record", new ResourceReference() { Url = localhost.Absolute(new Uri("OperationDefinition/Patient-everything", UriKind.Relative)) });
-            conformance.AddOperation("Generate a Document", new ResourceReference() { Url = localhost.Absolute(new Uri("OperationDefinition/Composition-document", UriKind.Relative)) });
+            conformance.AddOperation("Fetch Patient Record",
+                new ResourceReference
+                    {Url = localhost.Absolute(new Uri("OperationDefinition/Patient-everything", UriKind.Relative))});
+            conformance.AddOperation("Generate a Document",
+                new ResourceReference
+                    {Url = localhost.Absolute(new Uri("OperationDefinition/Composition-document", UriKind.Relative))});
             conformance.AcceptUnknown = Conformance.UnknownContentCode.Both;
             conformance.Experimental = true;
             conformance.Kind = Conformance.ConformanceStatementKind.Capability;
-            conformance.Format = new string[] { "xml", "json" };
-            conformance.Description = "This FHIR SERVER is a reference Implementation server built in C# on HL7.Fhir.Core (nuget) by Furore and others";
+            conformance.Format = new[] {"xml", "json"};
+            conformance.Description =
+                "This is FHIR SERVER"; // is a reference Implementation server built in C# on HL7.Fhir.Core (nuget) by Furore and others";
 
             return conformance;
         }
 
-        public static Conformance CreateServer(String server, String serverVersion, String publisher, String fhirVersion)
+        public static Conformance CreateServer(string server, string serverVersion, string publisher,
+            string fhirVersion)
         {
-            Conformance conformance = new Conformance();
+            var conformance = new Conformance();
             conformance.Name = server;
             conformance.Publisher = publisher;
             conformance.Version = serverVersion;
@@ -48,8 +55,11 @@ namespace Spark.Engine.Service.FhirServiceExtensions
             conformance.AcceptUnknown = Conformance.UnknownContentCode.No;
             conformance.Date = Date.Today().Value;
             conformance.AddServer();
+
             return conformance;
+
             //AddRestComponent(true);
+
             //AddAllCoreResources(true, true, Conformance.ResourceVersionPolicy.VersionedUpdate);
             //AddAllSystemInteractions();
             //AddAllResourceInteractionsAllResources();
@@ -58,29 +68,92 @@ namespace Spark.Engine.Service.FhirServiceExtensions
             //return con;
         }
 
-        public static Conformance.RestComponent AddRestComponent(this Conformance conformance, Boolean isServer, String documentation = null)
+        private static void AddSecurityComponent(this Conformance.RestComponent restComponent)
+        {
+            var security = new Conformance.SecurityComponent
+            {
+                Service = AddSecurityService(),
+                Extension = AddSecurityServiceExtensions()
+            };
+            restComponent.Security = security;
+        }
+
+        private static List<CodeableConcept> AddSecurityService()
+        {
+            var securityService = new List<CodeableConcept>();
+            var securityCode = new CodeableConcept
+            (
+                "http://hl7.org/fhir/restful-security-service",
+                "SMART-on-FHIR",
+                "OAuth2 using SMART-on-FHIR profile (see http://docs.smarthealthit.org)"
+            );
+
+            securityService.Add(securityCode);
+            return securityService;
+        }
+
+        private static List<Extension> AddSecurityServiceExtensions()
+        {
+            var securityCodeExtensions = new List<Extension>();
+            var identityServer = ConfigurationManager.AppSettings.Get("identityServer");
+            var securityCodeExtensionChildren = new List<Extension>
+            {
+                new Extension
+                {
+                    Url = "token",
+                    Value = new FhirUri($"{identityServer}connect/token")
+                },
+                new Extension
+                {
+                    Url = "authorize",
+                    Value = new FhirUri($"{identityServer}connect/authorize")
+                }
+                /* new Extension
+                 {
+                     Url = "manage",
+                     Value = new FhirString($"{identityServer}authorizations/manage")
+                 }*/
+            };
+
+
+            //optional
+
+            securityCodeExtensions.Add(new Extension
+            {
+                Url = "http://fhir-registry.smarthealthit.org/StructureDefinition/oauth-uris",
+                Extension = securityCodeExtensionChildren
+            });
+
+            return securityCodeExtensions;
+        }
+
+        public static Conformance.RestComponent AddRestComponent(this Conformance conformance, bool isServer,
+            string documentation = null)
         {
             var server = new Conformance.RestComponent();
-            server.Mode = (isServer) ? Conformance.RestfulConformanceMode.Server : Conformance.RestfulConformanceMode.Client;
+            server.Mode = isServer
+                ? Conformance.RestfulConformanceMode.Server
+                : Conformance.RestfulConformanceMode.Client;
 
             if (documentation != null)
             {
                 server.Documentation = documentation;
             }
+
             conformance.Rest.Add(server);
             return server;
         }
 
         public static Conformance AddServer(this Conformance conformance)
         {
-            conformance.AddRestComponent(isServer: true);
+            conformance.AddRestComponent(true).AddSecurityComponent();
             return conformance;
         }
 
         public static Conformance.RestComponent Server(this Conformance conformance)
         {
             var server = conformance.Rest.FirstOrDefault(r => r.Mode == Conformance.RestfulConformanceMode.Server);
-            return (server == null) ? conformance.AddRestComponent(isServer: true) : server;
+            return server == null ? conformance.AddRestComponent(true) : server;
         }
 
         public static Conformance.RestComponent Rest(this Conformance conformance)
@@ -88,28 +161,35 @@ namespace Spark.Engine.Service.FhirServiceExtensions
             return conformance.Rest.FirstOrDefault();
         }
 
-        public static Conformance AddAllCoreResources(this Conformance conformance, Boolean readhistory, Boolean updatecreate, Conformance.ResourceVersionPolicy versioning)
+        public static Conformance AddAllCoreResources(this Conformance conformance, bool readhistory, bool updatecreate,
+            Conformance.ResourceVersionPolicy versioning)
         {
             foreach (var resource in ModelInfo.SupportedResources)
             {
                 conformance.AddSingleResourceComponent(resource, readhistory, updatecreate, versioning);
             }
+
             return conformance;
         }
 
-        public static Conformance AddMultipleResourceComponents(this Conformance conformance, List<String> resourcetypes, Boolean readhistory, Boolean updatecreate, Conformance.ResourceVersionPolicy versioning)
+        public static Conformance AddMultipleResourceComponents(this Conformance conformance,
+            List<string> resourcetypes, bool readhistory, bool updatecreate,
+            Conformance.ResourceVersionPolicy versioning)
         {
             foreach (var type in resourcetypes)
             {
                 AddSingleResourceComponent(conformance, type, readhistory, updatecreate, versioning);
             }
+
             return conformance;
         }
 
-        public static Conformance AddSingleResourceComponent(this Conformance conformance, String resourcetype, Boolean readhistory, Boolean updatecreate, Conformance.ResourceVersionPolicy versioning, ResourceReference profile = null)
+        public static Conformance AddSingleResourceComponent(this Conformance conformance, string resourcetype,
+            bool readhistory, bool updatecreate, Conformance.ResourceVersionPolicy versioning,
+            ResourceReference profile = null)
         {
             var resource = new Conformance.ResourceComponent();
-            
+
             resource.Type = Hacky.GetResourceTypeForResourceName(resourcetype);
             resource.Profile = profile;
             resource.ReadHistory = readhistory;
@@ -129,6 +209,7 @@ namespace Spark.Engine.Service.FhirServiceExtensions
                 p.Documentation = "Summary for resource";
                 resource.SearchParam.Add(p);
             }
+
             return conformance;
         }
 
@@ -139,20 +220,21 @@ namespace Spark.Engine.Service.FhirServiceExtensions
                 conformance.Rest().Resource.Remove(r);
                 conformance.Rest().Resource.Add(AddCoreSearchParamsResource(r));
             }
+
             return conformance;
         }
 
 
-        public static Conformance.ResourceComponent AddCoreSearchParamsResource(Conformance.ResourceComponent resourcecomp)
+        public static Conformance.ResourceComponent AddCoreSearchParamsResource(
+            Conformance.ResourceComponent resourcecomp)
         {
             var parameters = ModelInfo.SearchParameters.Where(sp => sp.Resource == resourcecomp.Type.GetLiteral())
-                            .Select(sp => new Conformance.SearchParamComponent
-                            {
-                                Name = sp.Name,
-                                Type = sp.Type,
-                                Documentation = sp.Description,
-                                
-                            });
+                .Select(sp => new Conformance.SearchParamComponent
+                {
+                    Name = sp.Name,
+                    Type = sp.Type,
+                    Documentation = sp.Description
+                });
 
             resourcecomp.SearchParam.AddRange(parameters);
             return resourcecomp;
@@ -165,33 +247,39 @@ namespace Spark.Engine.Service.FhirServiceExtensions
                 conformance.Rest().Resource.Remove(r);
                 conformance.Rest().Resource.Add(AddAllResourceInteractions(r));
             }
+
             return conformance;
         }
 
-        public static Conformance.ResourceComponent AddAllResourceInteractions(Conformance.ResourceComponent resourcecomp)
+        public static Conformance.ResourceComponent AddAllResourceInteractions(
+            Conformance.ResourceComponent resourcecomp)
         {
-            foreach (Conformance.TypeRestfulInteraction type in Enum.GetValues(typeof(Conformance.TypeRestfulInteraction)))
+            foreach (Conformance.TypeRestfulInteraction type in Enum.GetValues(
+                typeof(Conformance.TypeRestfulInteraction)))
             {
                 var interaction = AddSingleResourceInteraction(resourcecomp, type);
                 resourcecomp.Interaction.Add(interaction);
             }
+
             return resourcecomp;
         }
 
-        public static Conformance.ResourceInteractionComponent AddSingleResourceInteraction(Conformance.ResourceComponent resourcecomp, Conformance.TypeRestfulInteraction type)
+        public static Conformance.ResourceInteractionComponent AddSingleResourceInteraction(
+            Conformance.ResourceComponent resourcecomp, Conformance.TypeRestfulInteraction type)
         {
             var interaction = new Conformance.ResourceInteractionComponent();
             interaction.Code = type;
             return interaction;
-
         }
 
         public static Conformance AddAllSystemInteractions(this Conformance conformance)
         {
-            foreach (Conformance.SystemRestfulInteraction code in Enum.GetValues(typeof(Conformance.SystemRestfulInteraction)))
+            foreach (Conformance.SystemRestfulInteraction code in Enum.GetValues(
+                typeof(Conformance.SystemRestfulInteraction)))
             {
                 conformance.AddSystemInteraction(code);
             }
+
             return conformance;
         }
 
@@ -204,7 +292,7 @@ namespace Spark.Engine.Service.FhirServiceExtensions
             conformance.Rest().Interaction.Add(interaction);
         }
 
-        public static void AddOperation(this Conformance conformance, String name, ResourceReference definition)
+        public static void AddOperation(this Conformance conformance, string name, ResourceReference definition)
         {
             var operation = new Conformance.OperationComponent();
 
@@ -214,128 +302,126 @@ namespace Spark.Engine.Service.FhirServiceExtensions
             conformance.Server().Operation.Add(operation);
         }
 
-        public static String ConformanceToXML(this Conformance conformance)
+        public static string ConformanceToXML(this Conformance conformance)
         {
             return FhirSerializer.SerializeResourceToXml(conformance);
         }
-
     }
-
 }
 
-        // TODO: Code review Conformance replacement
-        //public const string CONFORMANCE_ID = "self";
-        //public static readonly string CONFORMANCE_COLLECTION_NAME = typeof(Conformance).GetCollectionName();
+// TODO: Code review Conformance replacement
+//public const string CONFORMANCE_ID = "self";
+//public static readonly string CONFORMANCE_COLLECTION_NAME = typeof(Conformance).GetCollectionName();
+
+//public static Conformance CreateTemp()
+//{
+//    return new Conformance();
+
+//}
+
+//public static Conformance Build()
+//{
+//    //var conformance = new Conformance();
+
+//Stream s = typeof(ConformanceBuilder).Assembly.GetManifestResourceStream("Spark.Engine.Service.Conformance.xml");
+//StreamReader sr = new StreamReader(s);
+//string conformanceXml = sr.ReadToEnd();
+
+//var conformance = (Conformance)FhirParser.ParseResourceFromXml(conformanceXml);
+
+//conformance.Software = new Conformance.ConformanceSoftwareComponent();
+//conformance.Software.Version = ReadVersionFromAssembly();
+//conformance.Software.Name = ReadProductNameFromAssembly();
+//conformance.FhirVersion = ModelInfo.Version;
+//conformance.Date = Date.Today().Value;
+//conformance.Meta = new Resource.ResourceMetaComponent();
+//conformance.Meta.VersionId = "0";
+
+//Conformance.ConformanceRestComponent serverComponent = conformance.Rest[0];
+
+// Replace anything that was there before...
+//serverComponent.Resource = new List<Conformance.ConformanceRestResourceComponent>();
+
+/*var allOperations = new List<Conformance.ConformanceRestResourceOperationComponent>()
+{   new Conformance.ConformanceRestResourceOperationComponent { Code = Conformance.RestfulOperationType.Create },
+    new Conformance.ConformanceRestResourceOperationComponent { Code = Conformance.RestfulOperationType.Delete },
+    new Conformance.ConformanceRestResourceOperationComponent { Code = Conformance.RestfulOperationType.HistoryInstance },
+
+    new Conformance.ConformanceRestResourceOperationComponent { Code = Conformance.RestfulOperationType.HistoryType },
+    new Conformance.ConformanceRestResourceOperationComponent { Code = Conformance.RestfulOperationType.Read },
     
-        //public static Conformance CreateTemp()
-        //{
-        //    return new Conformance();
+    new Conformance.ConformanceRestResourceOperationComponent { Code = Conformance.RestfulOperationType.SearchType },
+    
+    
+    new Conformance.ConformanceRestResourceOperationComponent { Code = Conformance.RestfulOperationType.Update },
+    new Conformance.ConformanceRestResourceOperationComponent { Code = Conformance.RestfulOperationType.Validate },            
+    new Conformance.ConformanceRestResourceOperationComponent { Code = Conformance.RestfulOperationType.Vread },
+};
 
-        //}
+foreach (var resourceName in ModelInfo.SupportedResources)
+{
+    var supportedResource = new Conformance.ConformanceRestResourceComponent();
+    supportedResource.Type = resourceName;
+    supportedResource.ReadHistory = true;
+    supportedResource.Operation = allOperations;
 
-        //public static Conformance Build()
-        //{
-        //    //var conformance = new Conformance();
+    // Add supported _includes for this resource
+    supportedResource.SearchInclude = ModelInfo.SearchParameters
+        .Where(sp => sp.Resource == resourceName)
+        .Where(sp => sp.Type == Conformance.SearchParamType.Reference)
+        .Select(sp => sp.Name);
 
-            //Stream s = typeof(ConformanceBuilder).Assembly.GetManifestResourceStream("Spark.Engine.Service.Conformance.xml");
-            //StreamReader sr = new StreamReader(s);
-            //string conformanceXml = sr.ReadToEnd();
-            
-            //var conformance = (Conformance)FhirParser.ParseResourceFromXml(conformanceXml);
-
-            //conformance.Software = new Conformance.ConformanceSoftwareComponent();
-            //conformance.Software.Version = ReadVersionFromAssembly();
-            //conformance.Software.Name = ReadProductNameFromAssembly();
-            //conformance.FhirVersion = ModelInfo.Version;
-            //conformance.Date = Date.Today().Value;
-            //conformance.Meta = new Resource.ResourceMetaComponent();
-            //conformance.Meta.VersionId = "0";
-
-            //Conformance.ConformanceRestComponent serverComponent = conformance.Rest[0];
-
-            // Replace anything that was there before...
-            //serverComponent.Resource = new List<Conformance.ConformanceRestResourceComponent>();
-                
-            /*var allOperations = new List<Conformance.ConformanceRestResourceOperationComponent>()
-            {   new Conformance.ConformanceRestResourceOperationComponent { Code = Conformance.RestfulOperationType.Create },
-                new Conformance.ConformanceRestResourceOperationComponent { Code = Conformance.RestfulOperationType.Delete },
-                new Conformance.ConformanceRestResourceOperationComponent { Code = Conformance.RestfulOperationType.HistoryInstance },
-
-                new Conformance.ConformanceRestResourceOperationComponent { Code = Conformance.RestfulOperationType.HistoryType },
-                new Conformance.ConformanceRestResourceOperationComponent { Code = Conformance.RestfulOperationType.Read },
-                
-                new Conformance.ConformanceRestResourceOperationComponent { Code = Conformance.RestfulOperationType.SearchType },
-                
-                
-                new Conformance.ConformanceRestResourceOperationComponent { Code = Conformance.RestfulOperationType.Update },
-                new Conformance.ConformanceRestResourceOperationComponent { Code = Conformance.RestfulOperationType.Validate },            
-                new Conformance.ConformanceRestResourceOperationComponent { Code = Conformance.RestfulOperationType.Vread },
-            };
-
-            foreach (var resourceName in ModelInfo.SupportedResources)
-            {
-                var supportedResource = new Conformance.ConformanceRestResourceComponent();
-                supportedResource.Type = resourceName;
-                supportedResource.ReadHistory = true;
-                supportedResource.Operation = allOperations;
-
-                // Add supported _includes for this resource
-                supportedResource.SearchInclude = ModelInfo.SearchParameters
-                    .Where(sp => sp.Resource == resourceName)
-                    .Where(sp => sp.Type == Conformance.SearchParamType.Reference)
-                    .Select(sp => sp.Name);
-
-                supportedResource.SearchParam = new List<Conformance.ConformanceRestResourceSearchParamComponent>();
+    supportedResource.SearchParam = new List<Conformance.ConformanceRestResourceSearchParamComponent>();
 
 
-                var parameters = ModelInfo.SearchParameters.Where(sp => sp.Resource == resourceName)
-                        .Select(sp => new Conformance.ConformanceRestResourceSearchParamComponent
-                            {
-                                Name = sp.Name,
-                                Type = sp.Type,
-                                Documentation = sp.Description,
-                            });
+    var parameters = ModelInfo.SearchParameters.Where(sp => sp.Resource == resourceName)
+            .Select(sp => new Conformance.ConformanceRestResourceSearchParamComponent
+                {
+                    Name = sp.Name,
+                    Type = sp.Type,
+                    Documentation = sp.Description,
+                });
 
-                supportedResource.SearchParam.AddRange(parameters);
-                
-                serverComponent.Resource.Add(supportedResource);
-            }
-            */
-            // This constant has become internal. Please undo. We need it. 
+    supportedResource.SearchParam.AddRange(parameters);
+    
+    serverComponent.Resource.Add(supportedResource);
+}
+*/
+// This constant has become internal. Please undo. We need it. 
 
-            // Update: new location: XHtml.XHTMLNS / XHtml
-    //        // XNamespace ns = Hl7.Fhir.Support.Util.XHTMLNS;
-    //        XNamespace ns = "http://www.w3.org/1999/xhtml";
-           
-    //        var summary = new XElement(ns + "div");
+// Update: new location: XHtml.XHTMLNS / XHtml
+//        // XNamespace ns = Hl7.Fhir.Support.Util.XHTMLNS;
+//        XNamespace ns = "http://www.w3.org/1999/xhtml";
 
-    //        foreach (string resourceName in ModelInfo.SupportedResources)
-    //        {
-    //            summary.Add(new XElement(ns + "p",
-    //                String.Format("The server supports all operations on the {0} resource, including history",
-    //                    resourceName)));
-    //        }
+//        var summary = new XElement(ns + "div");
 
-    //        conformance.Text = new Narrative();
-    //        conformance.Text.Div = summary.ToString();
-    //        return conformance;
-    //    }
+//        foreach (string resourceName in ModelInfo.SupportedResources)
+//        {
+//            summary.Add(new XElement(ns + "p",
+//                String.Format("The server supports all operations on the {0} resource, including history",
+//                    resourceName)));
+//        }
 
-    //    public static string ReadVersionFromAssembly()
-    //    {
-    //        var attribute = (System.Reflection.AssemblyFileVersionAttribute)typeof(ConformanceBuilder).Assembly
-    //            .GetCustomAttributes(typeof(System.Reflection.AssemblyFileVersionAttribute), true)
-    //            .Single();
-    //        return attribute.Version;
-    //    }
+//        conformance.Text = new Narrative();
+//        conformance.Text.Div = summary.ToString();
+//        return conformance;
+//    }
 
-    //    public static string ReadProductNameFromAssembly()
-    //    {
-    //        var attribute = (System.Reflection.AssemblyProductAttribute)typeof(ConformanceBuilder).Assembly
-    //            .GetCustomAttributes(typeof(System.Reflection.AssemblyProductAttribute), true)
-    //            .Single();
-    //        return attribute.Product;
-    //    }
-    //}
- 
+//    public static string ReadVersionFromAssembly()
+//    {
+//        var attribute = (System.Reflection.AssemblyFileVersionAttribute)typeof(ConformanceBuilder).Assembly
+//            .GetCustomAttributes(typeof(System.Reflection.AssemblyFileVersionAttribute), true)
+//            .Single();
+//        return attribute.Version;
+//    }
+
+//    public static string ReadProductNameFromAssembly()
+//    {
+//        var attribute = (System.Reflection.AssemblyProductAttribute)typeof(ConformanceBuilder).Assembly
+//            .GetCustomAttributes(typeof(System.Reflection.AssemblyProductAttribute), true)
+//            .Single();
+//        return attribute.Product;
+//    }
+//}
+
 //}
