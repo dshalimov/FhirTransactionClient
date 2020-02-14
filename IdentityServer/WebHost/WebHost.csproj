@@ -98,10 +98,10 @@
     <Compile Include="Configuration\Cert.cs" />
     <Compile Include="Configuration\Clients.cs" />
     <Compile Include="Configuration\InMemoryManager.cs" />
-    <Compile Include="Configuration\PracticeUserService.cs" />
     <Compile Include="Configuration\Scopes.cs" />
     <Compile Include="Configuration\SecretParser.cs" />
     <Compile Include="Configuration\SecretValidator.cs" />
+    <Compile Include="Configuration\SofTokenResponseGenerator.cs" />
     <Compile Include="Configuration\Users.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
     <Compile Include="Startup.cs" />

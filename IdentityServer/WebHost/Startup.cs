@@ -1,6 +1,7 @@
 ﻿using Configuration;
 using IdentityServer3.Core.Configuration;
 using IdentityServer3.Core.Services;
+using IdentityServer3.Core.Services.Default;
 using IdentityServer3.Core.Validation;
 using Microsoft.Owin;
 using Owin;
@@ -17,7 +18,7 @@ namespace WebHost
         public void Configuration(IAppBuilder app)
         {
             Log.Logger = new LoggerConfiguration()
-                .MinimumLevel.Debug()
+                .MinimumLevel.Verbose()
                 .WriteTo.RollingFile("C:\\logs\\oauth.log", retainedFileCountLimit: 7,
                     outputTemplate: "{Timestamp} [{Level}] {Message}{NewLine}{Exception}")
                 .CreateLogger();
@@ -37,16 +38,25 @@ namespace WebHost
             factory.SecretParsers.Clear();
             factory.SecretParsers.Add(new Registration<ISecretParser>(resolver => new SecretParser()));
 
-            var userService = new PracticeUserService(users);
+            factory.CustomTokenResponseGenerator = new Registration<ICustomTokenResponseGenerator, SofTokenResponseGenerator>();
 
-            factory.UserService = new Registration<IUserService>(resolver => userService);
+            /*var viewOptions = new DefaultViewServiceOptions();
+            viewOptions.Stylesheets.Add("TBD...");
+            factory.ConfigureDefaultViewService(viewOptions);*/
 
             var options = new IdentityServerOptions
             {
                 SiteName = "NextGen Healthcare",
                 SigningCertificate = Certificate.Load(),
                 Factory = factory,
-                RequireSsl = false
+                RequireSsl = false,
+                LoggingOptions = new LoggingOptions
+                {
+                    EnableHttpLogging = true,
+                    EnableKatanaLogging = true,
+                    EnableWebApiDiagnostics = true,
+                    WebApiDiagnosticsIsVerbose = true
+                }
             };
 
             app.Map("", idsrvApp => { idsrvApp.UseIdentityServer(options); });

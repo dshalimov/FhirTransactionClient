@@ -150,7 +150,29 @@ namespace WebHost.Configuration
                     {
                         "http://10.37.129.2:9000"
                     }
-                }
+                },
+
+                new Client
+                {
+                    ClientId = "ellkay-himss-client-id",
+                    ClientSecrets = new List<Secret>
+                    {
+                        new Secret("secret".Sha256())
+                    },
+                    ClientName = "Ellkay Smart on FHIR Application",
+                    Flow = Flows.AuthorizationCode,
+                    AllowAccessToAllScopes = true,
+                    RedirectUris = new List<string>
+                    {
+                        "https://services.lkstaging.com/SSORedirector"
+                    },
+                    Enabled = true,
+                    AllowedCorsOrigins = new List<string>
+                    {
+                        "http://10.37.129.2:9000",
+                        "http://192.168.86.38:9000"
+                    }
+                },
             };
         }
     }
